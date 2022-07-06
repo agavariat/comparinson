@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from multiprocessing import context
 import time
 from odoo import api, models, _
 from odoo.exceptions import UserError
@@ -7,11 +8,13 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
-class ReportCashBook(models.AbstractModel):
-    _name = 'report.om_account_daily_reports.report_cashbook'
-    _description = 'Cash Book'
+class ReportCloseBook(models.AbstractModel):
+    _name = 'report.om_account_daily_reports.report_closebook'
+    _description = 'Close Book'
 
     def _get_account_move_entry(self, accounts, init_balance, sortby, display_account):
+        _logger.info("a"*200)
+       # _logger.info(self.with_context(data))
         """
                :param:
                        accounts: the recordset of accounts
@@ -44,7 +47,7 @@ class ReportCashBook(models.AbstractModel):
             sql = ("""
                     SELECT 0 AS lid, 
                     l.account_id AS account_id, '' AS ldate, '' AS lcode, 
-                    0.0 AS amount_currency,'' AS lref,'Initial Balance' AS lname, l.pos_reference as pos_reference, 
+                    0.0 AS amount_currency,'' AS lref,'Initial Balance' AS lname, l.pos_reference as pos_reference, l.room_ref as room_ref, 
                     COALESCE(SUM(l.credit),0.0) AS credit,COALESCE(SUM(l.debit),0.0) AS debit,COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit),0) as balance, 
                     '' AS lpartner_id,'' AS move_name, '' AS currency_code,NULL AS currency_id,'' AS partner_name,
                     '' AS mmove_id, '' AS invoice_id, '' AS invoice_type,'' AS invoice_number
@@ -55,9 +58,11 @@ class ReportCashBook(models.AbstractModel):
                     JOIN account_journal j ON (l.journal_id = j.id) 
                     JOIN account_account acc ON (l.account_id = acc.id) 
                     WHERE m.create_uid IN %s AND l.account_id IN %s""" + filters + 'GROUP BY l.account_id, l.pos_reference')
-            # WHERE l.account_id IN %s""" + filters + 'GROUP BY l.account_id, l.pos_reference')
-            # params = (tuple(accounts.ids),) + tuple(init_where_params)
+                    
             params = (tuple([self._context.get('create_user_id', 0)]),) + (tuple(accounts.ids),) + tuple(init_where_params)
+            
+            #WHERE m.create_uid IN %s AND l.account_id IN %s""" + filters + 'GROUP BY l.account_id, l.pos_reference'
+            #params = (tuple(accounts.ids),) + tuple(init_where_params)
             cr.execute(sql, params)
             for row in cr.dictfetchall():
                 move_lines[row.pop('account_id')].append(row)
@@ -74,13 +79,13 @@ class ReportCashBook(models.AbstractModel):
         filters = " AND ".join(wheres)
         filters = filters.replace('account_move_line__move_id', 'm').replace('account_move_line', 'l')
         if not accounts:
-            journals = self.env['account.journal'].search([('type', '=', 'cash')])
+            journals = self.env['account.journal'].search([('type', '=', 'sale')])
             accounts = []
-            for journal in journals:
-                accounts.append(journal.payment_credit_account_id.id)
+            #for journal in journals:
+            #    accounts.append(journal.payment_credit_account_id.id)
             accounts = self.env['account.account'].search([('id', 'in', accounts)])
 
-        sql = ('''SELECT l.id AS lid, l.account_id AS account_id, l.date_with_time AS ldate, j.code AS lcode, l.currency_id, l.amount_currency, l.ref AS lref, l.name AS lname, l.pos_reference AS pos_reference, COALESCE(l.debit,0) AS debit, COALESCE(l.credit,0) AS credit, COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit), 0) AS balance,\
+        sql = ('''SELECT l.id AS lid, l.account_id AS account_id, l.date_with_time AS ldate, j.code AS lcode, l.currency_id, l.amount_currency, l.ref AS lref, l.name AS lname, l.pos_reference AS pos_reference, l.room_ref AS room_ref, COALESCE(l.debit,0) AS debit, COALESCE(l.credit,0) AS credit, COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit), 0) AS balance,\
                         m.name AS move_name, c.symbol AS currency_code, p.name AS partner_name\
                         FROM account_move_line l\
                         JOIN account_move m ON (l.move_id=m.id)\
@@ -89,9 +94,11 @@ class ReportCashBook(models.AbstractModel):
                         JOIN account_journal j ON (l.journal_id=j.id)\
                         JOIN account_account acc ON (l.account_id = acc.id) \
                         WHERE m.create_uid IN %s AND l.account_id IN %s ''' + filters + ''' GROUP BY l.id, l.account_id, l.date_with_time, j.code, l.currency_id, l.amount_currency, l.ref, l.name, l.pos_reference, m.name, c.symbol, p.name ORDER BY ''' + sql_sort)
-        # params = (tuple(accounts.ids),) + tuple(where_params)
-        params = (tuple([self._context.get('create_user_id', 0)]),) + (tuple(accounts.ids),) + tuple(where_params)
-        cr.execute(sql, params)
+                        
+        params = (tuple([self._context.get('create_user_id', 0)]),) + (tuple(accounts.ids),) + tuple(where_params)                
+        #params = (tuple(accounts.ids),) + tuple(where_params)
+        #WHERE l.account_id IN %s ''' + filters + ''' GROUP BY l.id, l.account_id, l.date, j.code, l.currency_id, l.amount_currency, l.ref, l.name, l.pos_reference, l.room_ref, m.name, c.symbol, p.name ORDER BY ''' + sql_sort)
+        
         rows_acc = cr.dictfetchall()
         for row in rows_acc:
             balance = 0
@@ -141,12 +148,19 @@ class ReportCashBook(models.AbstractModel):
         account_ids = data['form']['account_ids']
         accounts = self.env['account.account'].search([('id', 'in', account_ids)])
         if not accounts:
-            journals = self.env['account.journal'].search([('type', '=', 'cash')])
+            journals = self.env['account.journal'].search([('type', '=', 'sale')])
             accounts = []
-            for journal in journals:
-                accounts.append(journal.payment_credit_account_id.id)
+            #for journal in journals:
+            #    accounts.append(journal.payment_credit_account_id.id)
             accounts = self.env['account.account'].search([('id', 'in', accounts)])
         record = self.with_context(data['form'].get('comparison_context', {}))._get_account_move_entry(accounts, init_balance, sortby, display_account)
+        _logger.info("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+       
+        if data['form']['comparison_context']['create_user_id']:
+            print()
+        #_logger.info(self.with_context(data['form'].get('comparison_context', {})))
+        _logger.info("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+
         return {
             'doc_ids': docids,
             'doc_model': model,
